@@ -160,6 +160,8 @@ struct tpm_bank_info {
 	uint8_t pcr[NUM_PCRS][MAX_DIGEST_SIZE];
 };
 
+const char *default_algos[] = {"sha1", "sha256"};
+
 /* One --pcrs file per hash-algorithm/bank */
 #define MAX_PCRFILE 2
 static char *pcrfile[MAX_PCRFILE];
@@ -1573,7 +1575,6 @@ static void set_bank_info(struct tpm_bank_info *bank, const char *algo_name)
 static struct tpm_bank_info *init_tpm_banks(int *num_banks)
 {
 	struct tpm_bank_info *banks = NULL;
-	const char *default_algos[] = {"sha1", "sha256"};
 	int num_algos = sizeof(default_algos) / sizeof(default_algos[0]);
 	int i, j;
 
@@ -1594,10 +1595,15 @@ static struct tpm_bank_info *init_tpm_banks(int *num_banks)
 
 /*
  * Compare the calculated TPM PCR banks against the PCR values read.
+ * The banks_mask parameter allows to select which banks to consider.
+ * A banks_maks of 0x3 would consider banks 1 and 2, 0x2 would only
+ * consider the 2nd bank, ~0 would consider all banks.
+ *
  * On failure to match any TPM bank, fail comparison.
  */
 static int compare_tpm_banks(int num_banks, struct tpm_bank_info *bank,
-			     struct tpm_bank_info *tpm_bank)
+			     struct tpm_bank_info *tpm_bank,
+			     unsigned int banks_mask)
 {
 	int i, j;
 	int ret = 0;
@@ -1605,6 +1611,9 @@ static int compare_tpm_banks(int num_banks, struct tpm_bank_info *bank,
 	for (i = 0; i < num_banks; i++) {
 		if (!bank[i].supported || !tpm_bank[i].supported)
 			continue;
+		if ((banks_mask & (1 << i)) == 0)
+			continue;
+		/* do we need to look at the n-th bank ? */
 		for (j = 0; j < NUM_PCRS; j++) {
 			if (memcmp(bank[i].pcr[j], zero, bank[i].digest_size)
 			    == 0)
@@ -1941,6 +1950,8 @@ static int ima_measurement(const char *file)
 	int num_banks = 0;
 	int tpmbanks = 1;
 	int first_record = 1;
+	unsigned int pseudo_padded_banks_mask, pseudo_banks_mask;
+	int c;
 
 	struct template_entry entry = { .template = 0 };
 	FILE *fp;
@@ -1973,6 +1984,10 @@ static int ima_measurement(const char *file)
 	 */
 	if (read_tpm_banks(num_banks, tpm_banks) != 0)
 		tpmbanks = 0;
+
+	/* A mask where each bit represents the banks to check against */
+	pseudo_banks_mask = (1 << num_banks) - 1;
+	pseudo_padded_banks_mask = pseudo_banks_mask;
 
 	while (fread(&entry.header, sizeof(entry.header), 1, fp)) {
 		if (entry.header.name_len > TCG_EVENT_NAME_LEN_MAX) {
@@ -2086,18 +2101,39 @@ static int ima_measurement(const char *file)
 		if (!tpmbanks)
 			continue;
 
-		/* The measurement list might contain too many entries,
-		 * compare the re-calculated TPM PCR values after each
-		 * extend.
-		 */
-		err = compare_tpm_banks(num_banks, pseudo_banks, tpm_banks);
-		if (!err)
+		for (c = 0; c < num_banks; c++) {
+			if ((pseudo_banks_mask & (1 << c)) == 0)
+				continue;
+			/* The measurement list might contain too many entries,
+			 * compare the re-calculated TPM PCR values after each
+			 * extend.
+			 */
+			err = compare_tpm_banks(num_banks, pseudo_banks,
+						tpm_banks, 1 << c);
+			if (!err) {
+				pseudo_banks_mask ^= (1 << c);
+				log_info("Matched %s bank.\n",
+					 default_algos[c]);
+			}
+		}
+		if (pseudo_banks_mask == 0)
 			break;
 
-		/* Compare against original SHA1 zero padded TPM PCR values */
-		err_padded = compare_tpm_banks(num_banks, pseudo_padded_banks,
-					       tpm_banks);
-		if (!err_padded)
+		for (c = 0; c < num_banks; c++) {
+			if ((pseudo_padded_banks_mask & (1 << c)) == 0)
+				continue;
+			/* Compare against original SHA1 zero padded TPM PCR values */
+			err_padded = compare_tpm_banks(num_banks,
+						       pseudo_padded_banks,
+						       tpm_banks,
+						       1 << c);
+			if (!err_padded) {
+				pseudo_padded_banks_mask ^= (1 << c);
+				log_info("Matched padded %s bank.\n",
+					 default_algos[c]);
+			}
+		}
+		if (pseudo_padded_banks_mask == 0)
 			break;
 	}
 
