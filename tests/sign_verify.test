@@ -16,10 +16,10 @@
 # GNU General Public License for more details.
 
 cd "$(dirname "$0")" || exit 1
-PATH=../src:$PATH
+PATH=../src:.:$PATH
 source ./functions.sh
 
-_require cmp evmctl getfattr openssl xxd
+_require cmp evmctl getfattr openssl xxd create_ima_signature
 
 if cmp -b 2>&1 | grep -q "invalid option"; then
 	echo "cmp does not support -b (cmp from busybox?) Use cmp from diffutils"
@@ -118,7 +118,24 @@ _evmctl_sign() {
 
   if [ "$type" = ima ]; then
     _test_sigfile "$file" "$(_xattr "$type")" "$file.sig" "$file.sig2"
+    if [ $? -ne $OK ]; then
+        return "$FAIL"
+    fi
   fi
+  # Compare evmctl IMA v2 signatures with RSA keys versus those from create_ima_signature
+  if [ "$type" = ima ] && [[ $key =~ rsa ]] && ! [[ $opts =~ --rsa ]] ; then
+    create_ima_signature --key "${key}" --hashalgo "${alg}" "${file}" |
+      sed -n 's/^03.*/\0/p' |
+      xxd -r -p > "$file.sig2"
+
+    if ! cmp -bl "$file.sig" "$file.sig2"; then
+      color_red
+      echo "evmctl vs. create_ima_signature: signatures on $file differ"
+      color_restore
+      return "$FAIL"
+    fi
+  fi
+  return $OK
 }
 
 # Run and test {ima_,}sign operation
