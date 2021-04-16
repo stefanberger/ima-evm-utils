@@ -998,15 +998,9 @@ err:
 static int sign_hash_v2(const char *algo, const unsigned char *hash,
 			int size, const char *keyfile, unsigned char *sig)
 {
-	struct signature_v2_hdr *hdr;
-	int len = -1;
+	char *error = NULL;
 	EVP_PKEY *pkey;
-	char name[20];
-	EVP_PKEY_CTX *ctx = NULL;
-	const EVP_MD *md;
-	size_t sigsize;
-	const char *st;
-	uint32_t keyid;
+	int len = -1;
 
 	if (!hash) {
 		log_err("sign_hash_v2: hash is null\n");
@@ -1018,16 +1012,6 @@ static int sign_hash_v2(const char *algo, const unsigned char *hash,
 		return -1;
 	}
 
-	if (!sig) {
-		log_err("sign_hash_v2: sig is null\n");
-		return -1;
-	}
-
-	if (!algo) {
-		log_err("sign_hash_v2: algo is null\n");
-		return -1;
-	}
-
 	log_info("hash(%s): ", imaevm_params.hash_algo);
 	log_dump(hash, size);
 
@@ -1035,49 +1019,20 @@ static int sign_hash_v2(const char *algo, const unsigned char *hash,
 	if (!pkey)
 		return -1;
 
-	hdr = (struct signature_v2_hdr *)sig;
-	hdr->version = (uint8_t) DIGSIG_VERSION_2;
-
-	hdr->hash_algo = imaevm_get_hash_algo(algo);
-	if (hdr->hash_algo == (uint8_t)-1) {
-		log_err("sign_hash_v2: hash algo is unknown: %s\n", algo);
-		return -1;
+	len = sign_hash_v2_pkey(algo, hash, size, pkey, 0, sig, MAX_SIGNATURE_SIZE - 1,
+	                        &error);
+	if (len < 0) {
+		log_err("%s\n", error);
+		output_openssl_errors();
+		goto err;
 	}
 
-	calc_keyid_v2(&keyid, name, pkey);
-	hdr->keyid = keyid;
-
-	st = "EVP_PKEY_CTX_new";
-	if (!(ctx = EVP_PKEY_CTX_new(pkey, NULL)))
-		goto err;
-	st = "EVP_PKEY_sign_init";
-	if (!EVP_PKEY_sign_init(ctx))
-		goto err;
-	st = "EVP_get_digestbyname";
-	if (!(md = EVP_get_digestbyname(imaevm_params.hash_algo)))
-		goto err;
-	st = "EVP_PKEY_CTX_set_signature_md";
-	if (!EVP_PKEY_CTX_set_signature_md(ctx, md))
-		goto err;
-	st = "EVP_PKEY_sign";
-	sigsize = MAX_SIGNATURE_SIZE - sizeof(struct signature_v2_hdr) - 1;
-	if (!EVP_PKEY_sign(ctx, hdr->sig, &sigsize, hash, size))
-		goto err;
-	len = (int)sigsize;
-
-	/* we add bit length of the signature to make it gnupg compatible */
-	hdr->sig_size = __cpu_to_be16(len);
-	len += sizeof(*hdr);
 	log_info("evm/ima signature: %d bytes\n", len);
 
 err:
-	if (len == -1) {
-		log_err("sign_hash_v2: signing failed: (%s) in %s\n",
-			ERR_reason_error_string(ERR_peek_error()), st);
-		output_openssl_errors();
-	}
-	EVP_PKEY_CTX_free(ctx);
+	free(error);
 	EVP_PKEY_free(pkey);
+
 	return len;
 }
 
