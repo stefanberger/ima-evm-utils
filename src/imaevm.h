@@ -225,5 +225,7 @@ int ima_verify_signature(const char *file, unsigned char *sig, int siglen, unsig
 void init_public_keys(const char *keyfiles);
 int imaevm_hash_algo_from_sig(unsigned char *sig);
 const char *imaevm_hash_algo_by_id(int algo);
+int imaevm_create_ima_signature(const char *filename, EVP_PKEY *pkey, uint32_t keyidv2, const char *algo,
+                                unsigned char *sig, size_t siglen, char **error);
 
 #endif

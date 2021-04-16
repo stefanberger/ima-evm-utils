@@ -44,9 +44,11 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <asm/byteorder.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
@@ -238,7 +240,7 @@ static int add_dev_hash(struct stat *st, EVP_MD_CTX *ctx)
 	return !EVP_DigestUpdate(ctx, &dev, sizeof(dev));
 }
 
-int ima_calc_hash(const char *file, uint8_t *hash)
+static int imaevm_calc_hash(const char *file, uint8_t *hash, const char *hash_algo)
 {
 	const EVP_MD *md;
 	struct stat st;
@@ -259,10 +261,9 @@ int ima_calc_hash(const char *file, uint8_t *hash)
 		goto err;
 	}
 
-	md = EVP_get_digestbyname(imaevm_params.hash_algo);
+	md = EVP_get_digestbyname(hash_algo);
 	if (!md) {
-		log_err("EVP_get_digestbyname(%s) failed\n",
-			imaevm_params.hash_algo);
+		log_err("EVP_get_digestbyname(%s) failed\n", hash_algo);
 		err = 1;
 		goto err;
 	}
@@ -311,6 +312,10 @@ err:
 	EVP_MD_CTX_free(pctx);
 #endif
 	return err;
+}
+
+int ima_calc_hash(const char *file, uint8_t *hash) {
+	return imaevm_calc_hash(file, hash, imaevm_params.hash_algo);
 }
 
 EVP_PKEY *read_pub_pkey(const char *keyfile, int x509)
@@ -879,6 +884,113 @@ out:
 	return len;
 }
 
+/* Sign a hash with the given private key.
+ *
+ * @algo: Name of the algorithm that was used to compute the hash, e.g. "sha256"
+ * @hash: The hash
+ * @size: Size of the hash
+ * @pkey: Private key to use for signing
+ * @keyidv2: Key ID v2; if 0 is passed in, it will be calculated from the private key
+ * @sig: Buffer for the signature; it is assumed to be of (MAX_SIGNATURE_SIZE - 1) size
+ * @siglen: Length of the signature buffer; it must be at least (MAX_SIGNATURE_SIZE - 1)
+ *          to be accepted
+ * @error: Pointer where a buffer with the error to report can be returned
+ *
+ * Returns -1 on error, the length of the signature, including header, otherwise
+ */
+static int sign_hash_v2_pkey(const char *algo, const unsigned char *hash,
+			     int size, EVP_PKEY *pkey, uint32_t keyidv2,
+			     unsigned char *sig, size_t siglen, char **error)
+{
+	struct signature_v2_hdr *hdr;
+	EVP_PKEY_CTX *ctx = NULL;
+	const char *st = NULL;
+	const EVP_MD *md;
+	size_t sigsize;
+	char name[20];
+	int len = -1;
+
+	if (!hash) {
+		asprintf(error, "sign_hash_v2_pkey: hash is null");
+		return -1;
+	}
+
+	if (size < 0) {
+		asprintf(error, "sign_hash_v2_pkey: size is negative: %d", size);
+		return -1;
+	}
+
+	if (!pkey) {
+		asprintf(error, "sign_hash_v2_pkey: pkey is null");
+		return -1;
+	}
+
+	if (!sig) {
+		asprintf(error, "sign_hash_v2_pkey: sig is null");
+		return -1;
+	}
+
+	if (siglen < MAX_SIGNATURE_SIZE - 1) {
+		asprintf(error, "sign_hash_v2_pkey: siglen must be at least %d bytes\n",
+		         MAX_SIGNATURE_SIZE - 1);
+		return -1;
+	}
+
+	if (!algo) {
+		asprintf(error, "sign_hash_v2_pkey: algo is null");
+		return -1;
+	}
+
+	hdr = (struct signature_v2_hdr *)sig;
+	hdr->version = (uint8_t) DIGSIG_VERSION_2;
+
+	hdr->hash_algo = imaevm_get_hash_algo(algo);
+	if (hdr->hash_algo == (uint8_t)-1) {
+		asprintf(error, "sign_hash_v2_pkey: hash algo is unknown: %s", algo);
+		return -1;
+	}
+
+	if (keyidv2 == 0) {
+		calc_keyid_v2(&keyidv2, name, pkey);
+		hdr->keyid = keyidv2;
+	} else {
+		hdr->keyid = __cpu_to_be32(keyidv2);
+	}
+
+	st = "EVP_PKEY_CTX_new";
+	if (!(ctx = EVP_PKEY_CTX_new(pkey, NULL)))
+		goto err;
+	st = "EVP_PKEY_sign_init";
+	if (!EVP_PKEY_sign_init(ctx))
+		goto err;
+	st = "EVP_get_digestbyname";
+	if (!(md = EVP_get_digestbyname(algo)))
+		goto err;
+	st = "EVP_PKEY_CTX_set_signature_md";
+	if (!EVP_PKEY_CTX_set_signature_md(ctx, md))
+		goto err;
+	st = "EVP_PKEY_sign";
+	sigsize = MAX_SIGNATURE_SIZE - sizeof(struct signature_v2_hdr) - 1;
+	if (!EVP_PKEY_sign(ctx, hdr->sig, &sigsize, hash, size))
+		goto err;
+	st = NULL;
+
+	len = (int)sigsize;
+
+	/* we add bit length of the signature to make it gnupg compatible */
+	hdr->sig_size = __cpu_to_be16(len);
+	len += sizeof(*hdr);
+
+err:
+	if (len == -1 && st != NULL) {
+		asprintf(error, "sign_hash_v2_pkey: signing failed: (%s) in %s",
+			ERR_reason_error_string(ERR_peek_error()), st);
+	}
+	EVP_PKEY_CTX_free(ctx);
+
+	return len;
+}
+
 /*
  * @sig is assumed to be of (MAX_SIGNATURE_SIZE - 1) size
  * Return: -1 signing error, >0 length of signature
@@ -978,6 +1090,34 @@ int sign_hash(const char *hashalgo, const unsigned char *hash, int size, const c
 	return imaevm_params.x509 ?
 		sign_hash_v2(hashalgo, hash, size, keyfile, sig) :
 		sign_hash_v1(hashalgo, hash, size, keyfile, sig);
+}
+
+/*
+ * Create an IMA signature for a given file using a given private key for signing
+ *
+ * @filename: Name of the file to sign
+ * @pkey: Private key to use for signing
+ * @keyidv2: The key ID v2; if 0 is passed in, it will be calculated from the private key
+ * @hash_algo: Name of the algorithm to use to compute the hash, e.g. "sha256"
+ * @sig: Buffer for the signature; it is assumed to be of (MAX_SIGNATURE_SIZE - 1) size
+ * @siglen: Length of the signature buffer; it must be at least (MAX_SIGNATURE_SIZE - 1)
+ *          to be accepted
+ * @error: Pointer where a buffer with the error to report can be returned
+ *
+ * Returns -1 on error, the length of the signature, including header, otherwise
+ */
+int imaevm_create_ima_signature(const char *filename, EVP_PKEY *pkey, uint32_t keyidv2, const char *hash_algo,
+                                unsigned char *sig, size_t siglen, char **error)
+{
+	unsigned char hash[MAX_DIGEST_SIZE];
+	int hashlen;
+
+	hashlen = imaevm_calc_hash(filename, hash, hash_algo);
+	if (hashlen <= 1)
+		return hashlen;
+	assert(hashlen <= sizeof(hash));
+
+	return sign_hash_v2_pkey(hash_algo, hash, hashlen, pkey, keyidv2, sig, siglen, error);
 }
 
 static void libinit()
