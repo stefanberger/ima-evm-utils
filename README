@@ -60,6 +60,7 @@ OPTIONS
                      read keyid value from SKID of a x509 cert file
   -o, --portable     generate portable EVM signatures
   -p, --pass         password for encrypted signing key
+                     Do not provide password on command line when using -p
   -r, --recursive    recurse into directories (sign)
   -t, --type         file types to fix 'fxm' (f: file)
                      x - skip fixing if both ima and evm xattrs exist (use with caution)

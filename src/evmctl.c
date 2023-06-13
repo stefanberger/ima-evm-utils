@@ -2834,6 +2834,7 @@ static void usage(void)
 		"                     read keyid value from SKID of a x509 cert file\n"
 		"  -o, --portable     generate portable EVM signatures\n"
 		"  -p, --pass         password for encrypted signing key\n"
+		"                     Do not provide password on command line when using -p\n"
 		"  -r, --recursive    recurse into directories (sign)\n"
 		"  -t, --type         file types to fix 'fxm' (f: file)\n"
 		"                     x - skip fixing if both ima and evm xattrs exist (use with caution)\n"
