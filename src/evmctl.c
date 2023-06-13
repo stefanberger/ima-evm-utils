@@ -2936,6 +2936,7 @@ static char *get_password(void)
 	struct termios flags, tmp_flags;
 	char *password, *pwd;
 	int passlen = 64;
+	size_t actlen;
 
 	password = malloc(passlen);
 	if (!password) {
@@ -2968,6 +2969,11 @@ static char *get_password(void)
 		free(password);
 		return NULL;
 	}
+
+	/* strip trailing '\n' */
+	actlen = strlen(password);
+	if (actlen > 0 && password[actlen - 1] == '\n')
+		password[actlen - 1] = 0;
 
 	return password;
 }
