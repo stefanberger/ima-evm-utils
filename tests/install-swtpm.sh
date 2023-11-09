@@ -16,6 +16,6 @@ mkdir ibmtpm$version
 cd ibmtpm$version
 tar --no-same-owner -xvzf ../download
 cd src
-make -j$(nproc)
+make -j"$(nproc)"
 $SUDO cp tpm_server /usr/local/bin/
 cd ../..
