@@ -129,7 +129,7 @@ check() {
 		exit "$SKIP"
 	fi
 
-	boot_aggr=( $bootaggr )
+	read -r -a boot_aggr <<< "$bootaggr"
 
 	echo "INFO: Searching for the boot_aggregate in ${ASCII_RUNTIME_MEASUREMENTS}"
 	for hash in "${boot_aggr[@]}"; do
