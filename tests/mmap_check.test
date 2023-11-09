@@ -97,11 +97,9 @@ check_load_ima_rule() {
 
 	new_policy=$(mktemp -p "$g_mountpoint")
 	echo "$1" > "$new_policy"
-	echo "$new_policy" > /sys/kernel/security/ima/policy
-	result=$?
-	rm -f "$new_policy"
-
-	if [ "$result" -ne 0 ]; then
+	if echo "$new_policy" > /sys/kernel/security/ima/policy; then
+		rm -f "$new_policy"
+	else
 		echo "${RED}Failed to set IMA policy${NORM}"
 		return "$HARDFAIL"
 	fi
