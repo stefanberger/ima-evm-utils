@@ -972,7 +972,7 @@ static int cmd_verify_evm(struct command *cmd)
 	return err;
 }
 
-static int verify_ima(const char *file)
+static int verify_ima(void *public_keys, const char *file)
 {
 	unsigned char sig[MAX_SIGNATURE_SIZE];
 	int len;
@@ -999,20 +999,14 @@ static int verify_ima(const char *file)
 		}
 	}
 
-	return ima_verify_signature(file, sig, len, NULL, 0);
+	return ima_verify_signature2(public_keys, file, sig, len, NULL, 0);
 }
 
 static int cmd_verify_ima(struct command *cmd)
 {
 	char *file = g_argv[optind++];
+	void *public_keys = NULL;
 	int err, fails = 0;
-
-	if (imaevm_params.x509) {
-		if (imaevm_params.keyfile) /* Support multiple public keys */
-			init_public_keys(imaevm_params.keyfile);
-		else			   /* assume read pubkey from x509 cert */
-			init_public_keys("/etc/keys/x509_evm.der");
-	}
 
 	if (!file) {
 		log_err("Parameters missing\n");
@@ -1020,13 +1014,22 @@ static int cmd_verify_ima(struct command *cmd)
 		return -1;
 	}
 
+	if (imaevm_params.x509) {
+		if (imaevm_params.keyfile) /* Support multiple public keys */
+			init_public_keys2(imaevm_params.keyfile, &public_keys);
+		else			   /* assume read pubkey from x509 cert */
+			init_public_keys2("/etc/keys/x509_evm.der", &public_keys);
+	}
+
 	do {
-		err = verify_ima(file);
+		err = verify_ima(public_keys, file);
 		if (err)
 			fails++;
 		if (!err && imaevm_params.verbose >= LOG_INFO)
 			log_info("%s: verification is OK\n", file);
 	} while ((file = g_argv[optind++]));
+
+	free_public_keys(public_keys);
 	return fails > 0;
 }
 
