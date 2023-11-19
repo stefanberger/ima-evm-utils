@@ -141,6 +141,7 @@ static bool evm_portable;
 static bool veritysig;
 static bool hwtpm;
 static char *hash_algo;
+static char *keypass;
 
 #define HMAC_FLAG_NO_UUID	0x0001
 #define HMAC_FLAG_CAPS_SET	0x0002
@@ -3075,9 +3076,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'p':
 			if (optarg)
-				imaevm_params.keypass = optarg;
+				keypass = optarg;
 			else
-				imaevm_params.keypass = get_password();
+				keypass = get_password();
 			break;
 		case 'f':
 			sigfile = 1;
@@ -3219,8 +3220,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!imaevm_params.keypass)
-		imaevm_params.keypass = getenv("EVMCTL_KEY_PASSWORD");
+	if (!keypass)
+		keypass = getenv("EVMCTL_KEY_PASSWORD");
 
 	if (imaevm_params.keyfile != NULL &&
 	    imaevm_params.eng == NULL &&
