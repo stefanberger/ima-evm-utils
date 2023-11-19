@@ -905,7 +905,7 @@ static int cmd_sign_evm(struct command *cmd)
 	return do_cmd(cmd, sign_evm_path);
 }
 
-static int verify_evm(const char *file)
+static int verify_evm(void *public_keys, const char *file)
 {
 	unsigned char hash[MAX_DIGEST_SIZE];
 	unsigned char sig[MAX_SIGNATURE_SIZE];
@@ -945,12 +945,14 @@ static int verify_evm(const char *file)
 		return mdlen;
 	assert(mdlen <= sizeof(hash));
 
-	return verify_hash(file, hash, mdlen, sig, len);
+	return verify_hash2(public_keys, file, imaevm_params.hash_algo,
+			    hash, mdlen, sig, len);
 }
 
 static int cmd_verify_evm(struct command *cmd)
 {
 	char *file = g_argv[optind++];
+	void *public_keys = NULL;
 	int err;
 
 	if (!file) {
@@ -961,14 +963,17 @@ static int cmd_verify_evm(struct command *cmd)
 
 	if (imaevm_params.x509) {
 		if (imaevm_params.keyfile) /* Support multiple public keys */
-			init_public_keys(imaevm_params.keyfile);
+			init_public_keys2(imaevm_params.keyfile, &public_keys);
 		else			   /* assume read pubkey from x509 cert */
-			init_public_keys("/etc/keys/x509_evm.der");
+			init_public_keys2("/etc/keys/x509_evm.der",
+					  &public_keys);
 	}
 
-	err = verify_evm(file);
+	err = verify_evm(public_keys, file);
 	if (!err && imaevm_params.verbose >= LOG_INFO)
 		log_info("%s: verification is OK\n", file);
+
+	free_public_keys(public_keys);
 	return err;
 }
 
