@@ -1614,7 +1614,7 @@ static int lookup_template_name_entry(char *template_name)
 	return 0;
 }
 
-void ima_ng_show(struct template_entry *entry)
+static void ima_ng_show(void *public_keys, struct template_entry *entry)
 {
 	uint8_t *fieldp = entry->template;
 	uint32_t field_len;
@@ -1740,10 +1740,12 @@ void ima_ng_show(struct template_entry *entry)
 		 * the measurement list or calculate the hash.
 		 */
 		if (verify_list_sig)
-			err = ima_verify_signature(path, sig, sig_len,
-						   digest, digest_len);
+			err = ima_verify_signature2(public_keys, path,
+						    sig, sig_len,
+						    digest, digest_len);
 		else
-			err = ima_verify_signature(path, sig, sig_len, NULL, 0);
+			err = ima_verify_signature2(public_keys, path,
+						    sig, sig_len, NULL, 0);
 
 		if (!err && imaevm_params.verbose > LOG_INFO)
 			log_info("%s: verification is OK\n", path);
@@ -2223,6 +2225,7 @@ static int ima_measurement(const char *file)
 	int first_record = 1;
 	unsigned int pseudo_padded_banks_mask, pseudo_banks_mask;
 	unsigned long entry_num = 0;
+	void *public_keys = NULL;
 	int c;
 
 	struct template_entry entry = { .template = NULL };
@@ -2252,9 +2255,9 @@ static int ima_measurement(const char *file)
 	}
 
 	if (imaevm_params.keyfile)	/* Support multiple public keys */
-		init_public_keys(imaevm_params.keyfile);
+		init_public_keys2(imaevm_params.keyfile, &public_keys);
 	else				/* assume read pubkey from x509 cert */
-		init_public_keys("/etc/keys/x509_evm.der");
+		init_public_keys2("/etc/keys/x509_evm.der", &public_keys);
 	if (errno)
 		log_errno_reset(LOG_DEBUG,
 				"Failure in initializing public keys");
@@ -2405,7 +2408,7 @@ static int ima_measurement(const char *file)
 		if (is_ima_template)
 			ima_show(&entry);
 		else
-			ima_ng_show(&entry);
+			ima_ng_show(public_keys, &entry);
 
 		if (!tpmbanks)
 			continue;
@@ -2464,6 +2467,7 @@ out_free:
 	free(pseudo_banks);
 	free(pseudo_padded_banks);
 	free(entry.template);
+	free_public_keys(public_keys);
 
 	return err;
 }
