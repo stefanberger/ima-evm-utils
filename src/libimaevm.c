@@ -732,7 +732,7 @@ int imaevm_hash_algo_from_sig(unsigned char *sig)
 		return -1;
 }
 
-int verify_hash2(void *public_keys, const char *file,
+int verify_hash2(void *public_keys, const char *file, const char *hash_algo,
 		 const unsigned char *hash, int size,
 		 unsigned char *sig, int siglen)
 {
@@ -770,7 +770,7 @@ int verify_hash2(void *public_keys, const char *file,
 int verify_hash(const char *file, const unsigned char *hash, int size,
 		unsigned char *sig, int siglen)
 {
-	return verify_hash2(g_public_keys, file, hash, size, sig, siglen);
+	return verify_hash2(g_public_keys, file, NULL, hash, size, sig, siglen);
 }
 
 int ima_verify_signature2(void *public_keys, const char *file,
@@ -803,7 +803,7 @@ int ima_verify_signature2(void *public_keys, const char *file,
 	 * measurement list, not by calculating the local file digest.
 	 */
 	if (digest && digestlen > 0)
-		return verify_hash2(public_keys, file, digest, digestlen,
+		return verify_hash2(public_keys, file, NULL, digest, digestlen,
 				   sig, siglen);
 
 	hashlen = ima_calc_hash(file, hash);
@@ -811,7 +811,8 @@ int ima_verify_signature2(void *public_keys, const char *file,
 		return hashlen;
 	assert(hashlen <= sizeof(hash));
 
-	return verify_hash2(public_keys, file, hash, hashlen, sig, siglen);
+	return verify_hash2(public_keys, file, NULL, hash, hashlen,
+			    sig, siglen);
 }
 
 /*
