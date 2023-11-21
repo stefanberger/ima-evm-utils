@@ -22,7 +22,7 @@ export PATH=../src:$PATH
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 . ./functions.sh
 _require evmctl
-TSSDIR="$(dirname -- "$(which tssstartup)")"
+TSSDIR="$(dirname -- "$(command -v tssstartup)")"
 PCRFILE="/sys/class/tpm/tpm0/device/pcrs"
 MISC_PCRFILE="/sys/class/misc/tpm0/device/pcrs"
 
@@ -39,8 +39,8 @@ cleanup() {
 swtpm_start() {
 	local tpm_server swtpm
 
-	tpm_server="$(which tpm_server)"
-	swtpm="$(which swtpm)"
+	tpm_server="$(command -v tpm_server)"
+	swtpm="$(command -v swtpm)"
 	if [ -z "${tpm_server}" ] && [ -z "${swtpm}" ]; then
 		echo "${CYAN}SKIP: Software TPM (tpm_server and swtpm) not found${NORM}"
 		return "$SKIP"

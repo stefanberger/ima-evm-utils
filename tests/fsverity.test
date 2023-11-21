@@ -44,7 +44,7 @@ TST_MNT="/tmp/fsverity-test"
 TST_IMG="/tmp/test.img"
 
 LOOPBACK_MOUNTED=0
-FSVERITY="$(which fsverity)"
+FSVERITY="$(command -v fsverity)"
 
 _require dd mkfs blkid e2fsck tune2fs evmctl setfattr
 ./gen-keys.sh >/dev/null 2>&1
@@ -293,7 +293,7 @@ measure-ima() {
 		return "$SKIP"
 	fi
 
-	digestsum=$(which "${hashalg}"sum)
+	digestsum=$(command -v "${hashalg}"sum)
 	if [ -z "${digestsum}" ]; then
 		echo "${CYAN}SKIP: ${hashalg}sum is not installed${NORM}"
 		return "$SKIP"
