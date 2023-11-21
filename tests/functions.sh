@@ -302,6 +302,7 @@ _enable_gost_engine() {
 _report_exit_and_cleanup() {
   local exit_code=$?
 
+  # shellcheck disable=SC2153
   if [ -n "${WORKDIR}" ]; then
     rm -rf "${WORKDIR}"
   fi
