@@ -11,7 +11,7 @@ version=${COMPILE_SSL}
 
 wget --no-check-certificate "https://github.com/openssl/openssl/archive/refs/tags/${version}.tar.gz"
 tar --no-same-owner -xzf "${version}.tar.gz"
-cd "openssl-${version}"
+pushd "openssl-${version}" 1>/dev/null || exit 1
 
 if [ "$VARIANT" = "i386" ]; then
 	echo "32-bit compilation"
@@ -25,6 +25,6 @@ make -j"$(nproc)"
 # only install apps and library
 sudo make install_sw
 
-cd ..
+popd 1>/dev/null
 rm -rf "${version}.tar.gz"
 rm -rf "openssl-${version}"
