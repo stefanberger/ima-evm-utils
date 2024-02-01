@@ -42,7 +42,7 @@ exit_early() {
 _require() {
   ret=
   for i; do
-    if ! type $i; then
+    if ! type "$i"; then
       echo "$i is required for test"
       ret=1
     fi
@@ -72,8 +72,14 @@ declare -i TNESTED=0 # just for sanity checking
 expect_pass() {
   local -i ret
 
+  if [ -n "$TST_LIST" ] && [ "${TST_LIST/$1/}" = "$TST_LIST" ]; then
+    [ "$VERBOSE" -gt 1 ] && echo "____ SKIP test: $*"
+    testsskip+=1
+    return "$SKIP"
+  fi
+
   if [ $TNESTED -gt 0 ]; then
-    echo $RED"expect_pass should not be run nested"$NORM
+    echo "${RED}expect_pass should not be run nested${NORM}"
     testsfail+=1
     exit "$HARDFAIL"
   fi
@@ -94,12 +100,37 @@ expect_pass() {
   return $ret
 }
 
+expect_pass_if() {
+  local indexes="$1"
+  local ret idx
+
+  shift
+
+  expect_pass "$@"
+  ret=$?
+
+  if [ $ret -ne 0 ] && [ $ret -ne 77 ] && [ -n "$PATCHES" ]; then
+    echo "${YELLOW}Possibly missing patches:${NORM}"
+    for idx in $indexes; do
+      echo "${YELLOW} - ${PATCHES[$((idx))]}${NORM}"
+    done
+  fi
+
+  return $ret
+}
+
 # Eval negative test (one that should fail) and account its result
 expect_fail() {
   local ret
 
+  if [ -n "$TST_LIST" ] && [ "${TST_LIST/$1/}" = "$TST_LIST" ]; then
+    [ "$VERBOSE" -gt 1 ] && echo "____ SKIP test: $*"
+    testsskip+=1
+    return "$SKIP"
+  fi
+
   if [ $TNESTED -gt 0 ]; then
-    echo $RED"expect_fail should not be run nested"$NORM
+    echo "${RED}expect_fail should not be run nested${NORM}"
     testsfail+=1
     exit "$HARDFAIL"
   fi
@@ -125,14 +156,33 @@ expect_fail() {
   return $ret
 }
 
+expect_fail_if() {
+  local indexes="$1"
+  local ret idx
+
+  shift
+
+  expect_fail "$@"
+  ret=$?
+
+  if { [ $ret -eq 0 ] || [ $ret -eq 99 ]; } && [ -n "$PATCHES" ]; then
+    echo "${YELLOW}Possibly missing patches:${NORM}"
+    for idx in $indexes; do
+      echo "${YELLOW} - ${PATCHES[$((idx))]}${NORM}"
+    done
+  fi
+
+  return $ret
+}
+
 # return true if current test is positive
 _test_expected_to_pass() {
-  [ ! $TFAIL ]
+  [ ! "$TFAIL" ]
 }
 
 # return true if current test is negative
 _test_expected_to_fail() {
-  [ $TFAIL ]
+  [ "$TFAIL" ]
 }
 
 # Show blank line and color following text to red
@@ -151,7 +201,7 @@ color_red() {
 }
 
 color_restore() {
-  [ $COLOR_RESTORE ] && echo "$NORM"
+  [ "$COLOR_RESTORE" ] && echo "$NORM"
   COLOR_RESTORE=
 }
 
@@ -166,7 +216,7 @@ _evmctl_run() {
   # ADD_TEXT_FOR: append to text as 'for $ADD_TEXT_FOR'
 
   cmd="evmctl $V $EVMCTL_ENGINE $*"
-  echo $YELLOW$TMODE "$cmd"$NORM
+  echo "${YELLOW}$TMODE $cmd${NORM}"
   $cmd >"$out" 2>&1
   ret=$?
 
@@ -176,7 +226,7 @@ _evmctl_run() {
     echo "evmctl $op failed hard with ($ret) $text_for"
     sed 's/^/  /' "$out"
     color_restore
-    rm "$out" $ADD_DEL
+    rm "$out" "$ADD_DEL"
     ADD_DEL=
     ADD_TEXT_FOR=
     return "$HARDFAIL"
@@ -188,7 +238,7 @@ _evmctl_run() {
       sed 's/^/  /' "$out"
     fi
     color_restore
-    rm "$out" $ADD_DEL
+    rm "$out" "$ADD_DEL"
     ADD_DEL=
     ADD_TEXT_FOR=
     return "$FAIL"
@@ -222,7 +272,7 @@ _test_xattr() {
   local file=$1 attr=$2 prefix=$3
   local text_for=${ADD_TEXT_FOR:+ for $ADD_TEXT_FOR}
 
-  if ! getfattr -n "$attr" -e hex "$file" | egrep -qx "$attr=$prefix"; then
+  if ! getfattr -n "$attr" -e hex "$file" | grep -qx -E "$attr=$prefix"; then
     color_red_on_failure
     echo "Did not find expected hash$text_for:"
     echo "    $attr=$prefix"
@@ -248,8 +298,16 @@ _enable_gost_engine() {
 }
 
 # Show test stats and exit into automake test system
-# with proper exit code (same as ours).
-_report_exit() {
+# with proper exit code (same as ours). Do cleanups.
+_report_exit_and_cleanup() {
+  local exit_code=$?
+
+  if [ -n "${WORKDIR}" ]; then
+    rm -rf "${WORKDIR}"
+  fi
+
+  "$@"
+
   if [ $testsfail -gt 0 ]; then
     echo "================================="
     echo " Run with FAILEARLY=1 $0 $*"
@@ -263,12 +321,148 @@ _report_exit() {
   [ $testsfail -gt 0 ] && echo -n "$RED" || echo -n "$NORM"
   echo " FAIL: $testsfail"
   echo "$NORM"
+  # Signal failure to the testing environment creator with an unclean shutdown.
+  if [ -n "$TST_ENV" ] && [ $$ -eq 1 ]; then
+    if [ -z "$(command -v poweroff)" ]; then
+      echo "Warning: cannot properly shutdown system"
+    fi
+
+    # If no test was executed and the script was successful,
+    # do a clean shutdown.
+    if [ $testsfail -eq 0 ] && [ $testspass -eq 0 ] && [ $testsskip -eq 0 ] &&
+       [ $exit_code -ne "$FAIL" ] && [ $exit_code -ne "$HARDFAIL" ]; then
+      poweroff -f
+    fi
+
+    # If tests were executed and no test failed, do a clean shutdown.
+    if { [ $testspass -gt 0 ] || [ $testsskip -gt 0 ]; } &&
+       [ $testsfail -eq 0 ]; then
+      poweroff -f
+    fi
+  fi
   if [ $testsfail -gt 0 ]; then
     exit "$FAIL"
   elif [ $testspass -gt 0 ]; then
     exit "$OK"
-  else
+  elif [ $testsskip -gt 0 ]; then
     exit "$SKIP"
+  else
+    exit "$exit_code"
   fi
 }
 
+# Setup SoftHSM for local testing by calling the softhsm_setup script.
+# Use the provided workdir as the directory where SoftHSM will store its state
+# into.
+# Upon successfully setting up SoftHSM, this function sets the global variables
+# OPENSSL_ENGINE and OPENSSL_KEYFORM so that the openssl command line tool can
+# use SoftHSM. Also the PKCS11_KEYURI global variable is set to the test key's
+# pkcs11 URI.
+_softhsm_setup() {
+  local workdir="$1"
+
+  local msg
+
+  export SOFTHSM_SETUP_CONFIGDIR="${workdir}/softhsm"
+  export SOFTHSM2_CONF="${workdir}/softhsm/softhsm2.conf"
+
+  mkdir -p "${SOFTHSM_SETUP_CONFIGDIR}"
+
+  if msg=$(./softhsm_setup setup 2>&1); then
+    echo "softhsm_setup setup succeeded: $msg"
+    PKCS11_KEYURI=$(echo "$msg" | sed -n 's|^keyuri: \(.*\)|\1|p')
+    export PKCS11_KEYURI
+
+    export EVMCTL_ENGINE="--engine pkcs11"
+    export OPENSSL_ENGINE="-engine pkcs11"
+    export OPENSSL_KEYFORM="-keyform engine"
+  else
+    echo "softhsm_setup setup failed: ${msg}"
+  fi
+}
+
+# Tear down the SoftHSM setup and clean up the environment
+_softhsm_teardown() {
+  ./softhsm_setup teardown &>/dev/null
+  rm -rf "${SOFTHSM_SETUP_CONFIGDIR}"
+  unset SOFTHSM_SETUP_CONFIGDIR SOFTHSM2_CONF PKCS11_KEYURI \
+    EVMCTL_ENGINE OPENSSL_ENGINE OPENSSL_KEYFORM
+}
+
+# Syntax: _run_env <kernel> <init> <additional kernel parameters>
+_run_env() {
+  if [ -z "$TST_ENV" ]; then
+    return
+  fi
+
+  if [ $$ -eq 1 ]; then
+    return
+  fi
+
+  if [ "$TST_ENV" = "um" ]; then
+    expect_pass "$1" rootfstype=hostfs rw init="$2" quiet mem=2048M "$3"
+  else
+    echo "${RED}Testing environment $TST_ENV not supported${NORM}"
+    exit "$FAIL"
+  fi
+}
+
+# Syntax: _exit_env <kernel>
+_exit_env() {
+  if [ -z "$TST_ENV" ]; then
+    return
+  fi
+
+  if [ $$ -eq 1 ]; then
+    return
+  fi
+
+  exit "$OK"
+}
+
+# Syntax: _init_env
+_init_env() {
+  if [ -z "$TST_ENV" ]; then
+    return
+  fi
+
+  if [ $$ -ne 1 ]; then
+    return
+  fi
+
+  mount -t tmpfs tmpfs /tmp
+  mount -t proc proc /proc
+  mount -t sysfs sysfs /sys
+  mount -t securityfs securityfs /sys/kernel/security
+  if grep -q smack < /sys/kernel/security/lsm; then
+    mount -t smackfs smackfs /sys/fs/smackfs
+  fi
+
+  if [ -n "$(command -v haveged 2> /dev/null)" ]; then
+    $(command -v haveged) -w 1024 &> /dev/null
+  fi
+
+  pushd "$PWD" > /dev/null || exit "$FAIL"
+}
+
+# Syntax: _cleanup_env <cleanup function>
+_cleanup_env() {
+  if [ -z "$TST_ENV" ]; then
+    $1
+    return
+  fi
+
+  if [ $$ -ne 1 ]; then
+    return
+  fi
+
+  $1
+
+  if grep -q smack < /sys/kernel/security/lsm; then
+    umount /sys/fs/smackfs
+  fi
+  umount /sys/kernel/security
+  umount /sys
+  umount /proc
+  umount /tmp
+}

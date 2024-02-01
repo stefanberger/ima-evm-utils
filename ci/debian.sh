@@ -2,6 +2,9 @@
 # Copyright (c) 2020 Petr Vorel <pvorel@suse.cz>
 set -ex
 
+# workaround for Ubuntu impish asking to interactively configure tzdata
+export DEBIAN_FRONTEND="noninteractive"
+
 if [ -z "$CC" ]; then
 	echo "missing \$CC!" >&2
 	exit 1
@@ -37,6 +40,7 @@ $apt \
 	debianutils \
 	docbook-xml \
 	docbook-xsl \
+	e2fsprogs \
 	gzip \
 	libattr1-dev$ARCH \
 	libkeyutils-dev$ARCH \
@@ -47,8 +51,11 @@ $apt \
 	pkg-config \
 	procps \
 	sudo \
+	util-linux \
 	wget \
 	xsltproc \
+	gawk
 
 $apt xxd || $apt vim-common
 $apt libengine-gost-openssl1.1$ARCH || true
+$apt softhsm gnutls-bin libengine-pkcs11-openssl1.1$ARCH || true

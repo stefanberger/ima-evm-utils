@@ -60,15 +60,15 @@ int tpm2_pcr_supported(void)
 		log_info("Using %s to read PCRs.\n", CMD);
 
 	if (get_cmd_path(CMD, path, sizeof(path))) {
-		log_debug("Couldn't find '%s' in $PATH", CMD);
+		log_info("Couldn't find '%s' in %s\n", CMD, path);
 		return 0;
 	}
 
-	log_debug("Found '%s' in $PATH", CMD);
+	log_debug("Found '%s' in %s\n", CMD, path);
 	return 1;
 }
 
-int tpm2_pcr_read(const char *algo_name, int idx, uint8_t *hwpcr,
+int tpm2_pcr_read(const char *algo_name, uint32_t pcr_handle, uint8_t *hwpcr,
 		 int len, char **errmsg)
 {
 	FILE *fp;
@@ -76,8 +76,8 @@ int tpm2_pcr_read(const char *algo_name, int idx, uint8_t *hwpcr,
 	char cmd[PATH_MAX + 50];
 	int ret;
 
-	sprintf(cmd, "%s -halg %s -ha %d -ns 2> /dev/null",
-		path, algo_name, idx);
+	sprintf(cmd, "%s -halg %s -ha %u -ns 2> /dev/null",
+		path, algo_name, pcr_handle);
 	fp = popen(cmd, "r");
 	if (!fp) {
 		ret = asprintf(errmsg, "popen failed: %s", strerror(errno));

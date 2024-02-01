@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copyright (c) 2020 Petr Vorel <pvorel@suse.cz>
-set -e
+set -ex
 
 if [ -z "$CC" ]; then
 	echo "missing \$CC!" >&2
@@ -8,8 +8,8 @@ if [ -z "$CC" ]; then
 fi
 
 case "$TSS" in
-ibmtss) TSS="tss2-devel";;
-tpm2-tss) TSS="tpm2-tss-devel";;
+ibmtss) echo "No IBM TSS package, will be installed from git" >&2; TSS=;;
+tpm2-tss) TSS="tpm2-tss-dev";;
 '') echo "Missing TSS!" >&2; exit 1;;
 *) echo "Unsupported TSS: '$TSS'!" >&2; exit 1;;
 esac
@@ -17,28 +17,38 @@ esac
 # ibmswtpm2 requires gcc
 [ "$CC" = "gcc" ] || CC="gcc $CC"
 
-yum -y install \
+apk update
+
+apk add \
 	$CC $TSS \
 	asciidoc \
 	attr \
+	attr-dev \
 	autoconf \
 	automake \
+	bash \
 	diffutils \
+	docbook-xml \
 	docbook-xsl \
-	gzip \
-	keyutils-libs-devel \
-	libattr-devel \
+	e2fsprogs-extra \
+	keyutils-dev \
 	libtool \
 	libxslt \
+	linux-headers \
 	make \
+	musl-dev \
 	openssl \
-	openssl-devel \
-	pkg-config \
+	openssl-dev \
+	pkgconfig \
 	procps \
 	sudo \
-	vim-common \
+	util-linux \
 	wget \
-	which
+	which \
+	xxd \
+	gawk
 
-yum -y install docbook5-style-xsl || true
-yum -y install swtpm || true
+if [ ! "$TSS" ]; then
+	apk add git
+	../tests/install-tss.sh
+fi

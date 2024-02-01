@@ -1,6 +1,16 @@
 #!/bin/sh
 # Copyright (c) 2020 Petr Vorel <pvorel@suse.cz>
 
+if [ -n "$CI" ]; then
+	# If we under CI only thing we can analyze is logs so better to enable
+	# verbosity to a maximum.
+	set -x
+	# This is to make stdout and stderr synchronous in the logs.
+	exec 2>&1
+
+	mount -t securityfs -o rw securityfs /sys/kernel/security
+fi
+
 set -e
 
 CC="${CC:-gcc}"
@@ -31,6 +41,14 @@ log_exit()
 }
 
 cd `dirname $0`
+
+if [ "$COMPILE_SSL" ]; then
+	echo "COMPILE_SSL: $COMPILE_SSL"
+	export CFLAGS="-I/opt/openssl3/include $CFLAGS"
+	export LD_LIBRARY_PATH="/opt/openssl3/lib64:/opt/openssl3/lib:$HOME/src/ima-evm-utils/src/.libs:$LD_LIBRARY_PATH"
+	export LDFLAGS="-L/opt/openssl3/lib64 -L/opt/openssl3/lib $LDFLAGS"
+	export PATH="/opt/openssl3/bin:$HOME/src/ima-evm-utils/src/.libs:$PATH"
+fi
 
 case "$VARIANT" in
 	i386)
@@ -79,9 +97,7 @@ VERBOSE=1 make check || ret=$?
 
 title "logs"
 if [ $ret -eq 0 ]; then
-	tail -3 tests/ima_hash.log
-	tail -3 tests/sign_verify.log
-	tail -20 tests/boot_aggregate.log
+	cd tests; make check_logs; cd ..
 	exit 0
 fi
 

@@ -26,6 +26,8 @@ zypper --non-interactive install --force-resolution --no-recommends \
 	diffutils \
 	docbook_5 \
 	docbook5-xsl-stylesheets \
+	e2fsprogs \
+	git-core \
 	gzip \
 	ibmswtpm2 \
 	keyutils-devel \
@@ -37,11 +39,16 @@ zypper --non-interactive install --force-resolution --no-recommends \
 	pkg-config \
 	procps \
 	sudo \
+	util-linux \
 	vim \
 	wget \
 	which \
-	xsltproc
+	xsltproc \
+	gawk
 
-if [ -f /usr/lib/ibmtss/tpm_server ]; then
+zypper --non-interactive install --force-resolution --no-recommends \
+	gnutls openssl-engine-libp11 softhsm || true
+
+if [ -f /usr/lib/ibmtss/tpm_server -a ! -e /usr/local/bin/tpm_server ]; then
 	ln -s /usr/lib/ibmtss/tpm_server /usr/local/bin
 fi

@@ -48,6 +48,13 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <openssl/rsa.h>
+#ifdef CONFIG_IMA_EVM_ENGINE
+#include <openssl/engine.h>
+#endif
+
+#if defined(OPENSSL_NO_ENGINE) || defined(OPENSSL_NO_DYNAMIC_ENGINE)
+#undef CONFIG_IMA_EVM_ENGINE
+#endif
 
 #ifdef USE_FPRINTF
 #define do_log(level, fmt, args...)	\
@@ -74,11 +81,25 @@
 #define log_err(fmt, args...)		do_log(LOG_ERR, fmt, ##args)
 #define log_errno(fmt, args...)		do_log(LOG_ERR, fmt ": errno: %s (%d)\n", ##args, strerror(errno), errno)
 
+#ifndef DEFAULT_HASH_ALGO
+#define DEFAULT_HASH_ALGO "sha256"
+#endif
+
 #define	DATA_SIZE	4096
 #define SHA1_HASH_LEN   20
 
 #define MAX_DIGEST_SIZE		64
 #define MAX_SIGNATURE_SIZE	1024
+
+/*
+ * The maximum template data size is dependent on the template format. For
+ * example the 'ima-modsig' template includes two signatures - one for the
+ * entire file, the other without the appended signature - and other fields
+ * (e.g. file digest, file name, file digest without the appended signature).
+ *
+ * Other template formats are much smaller.
+ */
+#define MAX_TEMPLATE_SIZE	(MAX_SIGNATURE_SIZE * 4)
 
 #define __packed __attribute__((packed))
 
@@ -88,6 +109,7 @@ enum evm_ima_xattr_type {
 	EVM_IMA_XATTR_DIGSIG,
 	IMA_XATTR_DIGEST_NG,
 	EVM_XATTR_PORTABLE_DIGSIG,
+	IMA_VERITY_DIGSIG,
 };
 
 struct h_misc {
@@ -133,7 +155,8 @@ enum digest_algo {
 
 enum digsig_version {
 	DIGSIG_VERSION_1 = 1,
-	DIGSIG_VERSION_2
+	DIGSIG_VERSION_2,
+	DIGSIG_VERSION_3	/* hash of ima_file_id struct (portion used) */
 };
 
 struct pubkey_hdr {
@@ -196,6 +219,9 @@ struct libimaevm_params {
 	const char *hash_algo;
 	const char *keyfile;
 	const char *keypass;
+	uint32_t keyid;		/* keyid overriding value, unless 0. (Host order.) */
+	ENGINE *eng;
+	const char *hmackeyfile;
 };
 
 struct RSA_ASN1_template {
@@ -206,11 +232,17 @@ struct RSA_ASN1_template {
 #define	NUM_PCRS 24
 #define DEFAULT_PCR 10
 
+#ifdef IMAEVM_SUPPRESS_DEPRECATED
+#define IMAEVM_DEPRECATED
+#else
+#define IMAEVM_DEPRECATED __attribute__ ((deprecated))
+#endif
+
 extern struct libimaevm_params imaevm_params;
+struct public_key_entry;
 
 void imaevm_do_hexdump(FILE *fp, const void *ptr, int len, bool cr);
 void imaevm_hexdump(const void *ptr, int len);
-int ima_calc_hash(const char *file, uint8_t *hash);
 int imaevm_get_hash_algo(const char *algo);
 RSA *read_pub_key(const char *keyfile, int x509);
 EVP_PKEY *read_pub_pkey(const char *keyfile, int x509);
@@ -218,12 +250,29 @@ EVP_PKEY *read_pub_pkey(const char *keyfile, int x509);
 void calc_keyid_v1(uint8_t *keyid, char *str, const unsigned char *pkey, int len);
 void calc_keyid_v2(uint32_t *keyid, char *str, EVP_PKEY *pkey);
 int key2bin(RSA *key, unsigned char *pub);
+uint32_t imaevm_read_keyid(const char *certfile);
 
 int sign_hash(const char *algo, const unsigned char *hash, int size, const char *keyfile, const char *keypass, unsigned char *sig);
-int verify_hash(const char *file, const unsigned char *hash, int size, unsigned char *sig, int siglen);
-int ima_verify_signature(const char *file, unsigned char *sig, int siglen, unsigned char *digest, int digestlen);
-void init_public_keys(const char *keyfiles);
+IMAEVM_DEPRECATED int ima_calc_hash(const char *file, uint8_t *hash);
+IMAEVM_DEPRECATED int verify_hash(const char *file, const unsigned char *hash,
+				  int size, unsigned char *sig, int siglen);
+IMAEVM_DEPRECATED int ima_verify_signature(const char *file, unsigned char *sig,
+					   int siglen, unsigned char *digest,
+					   int digestlen);
+IMAEVM_DEPRECATED void init_public_keys(const char *keyfiles);
+
+int ima_calc_hash2(const char *file, const char *hash_algo, uint8_t *hash);
+int imaevm_verify_hash(struct public_key_entry *public_keys, const char *file,
+		       const char *hash_algo, const unsigned char *hash,
+		       int size, unsigned char *sig, int siglen);
+int ima_verify_signature2(struct public_key_entry *public_keys, const char *file,
+			  unsigned char *sig, int siglen,
+			  unsigned char *digest, int digestlen);
+int imaevm_init_public_keys(const char *keyfiles,
+			    struct public_key_entry **public_keys);
+void imaevm_free_public_keys(struct public_key_entry *public_keys);
 int imaevm_hash_algo_from_sig(unsigned char *sig);
 const char *imaevm_hash_algo_by_id(int algo);
+int calc_hash_sigv3(enum evm_ima_xattr_type type, const char *algo, const unsigned char *in_hash, unsigned char *out_hash);
 
 #endif
