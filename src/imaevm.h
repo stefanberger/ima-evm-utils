@@ -48,12 +48,20 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <openssl/rsa.h>
-#ifdef CONFIG_IMA_EVM_ENGINE
-#include <openssl/engine.h>
+#include <openssl/opensslconf.h>
+
+#if !defined(OPENSSL_NO_ENGINE) && !defined(OPENSSL_NO_DYNAMIC_ENGINE)
+# include <openssl/engine.h>
+#else
+struct engine_st;
+typedef struct engine_st ENGINE; /* unused when no engine support */
 #endif
 
-#if defined(OPENSSL_NO_ENGINE) || defined(OPENSSL_NO_DYNAMIC_ENGINE)
-#undef CONFIG_IMA_EVM_ENGINE
+#if OPENSSL_VERSION_NUMBER >= 0x30000000
+# include <openssl/provider.h>
+#else
+struct ossl_provider_st;
+typedef struct ossl_provider_st OSSL_PROVIDER;
 #endif
 
 #ifdef USE_FPRINTF
@@ -252,7 +260,9 @@ void calc_keyid_v2(uint32_t *keyid, char *str, EVP_PKEY *pkey);
 int key2bin(RSA *key, unsigned char *pub);
 uint32_t imaevm_read_keyid(const char *certfile);
 
-int sign_hash(const char *algo, const unsigned char *hash, int size, const char *keyfile, const char *keypass, unsigned char *sig);
+IMAEVM_DEPRECATED int sign_hash(const char *algo, const unsigned char *hash,
+				int size, const char *keyfile, const char *keypass,
+				unsigned char *sig);
 IMAEVM_DEPRECATED int ima_calc_hash(const char *file, uint8_t *hash);
 IMAEVM_DEPRECATED int verify_hash(const char *file, const unsigned char *hash,
 				  int size, unsigned char *sig, int siglen);
@@ -261,7 +271,26 @@ IMAEVM_DEPRECATED int ima_verify_signature(const char *file, unsigned char *sig,
 					   int digestlen);
 IMAEVM_DEPRECATED void init_public_keys(const char *keyfiles);
 
+struct imaevm_ossl_access {
+    int type;
+#define IMAEVM_OSSL_ACCESS_TYPE_NONE   0
+#define IMAEVM_OSSL_ACCESS_TYPE_ENGINE 1  /* also: engine field exists */
+#define IMAEVM_OSSL_ACCESS_TYPE_PROVIDER 2 /* also: provider field exists */
+    union {
+        ENGINE *engine;
+        OSSL_PROVIDER *provider;
+    } u;
+};
+
+#define IMAEVM_SIGFLAG_SIGNATURE_V1	(1 << 0) /* v1 signature; deprecated */
+#define IMAEVM_SIGFLAGS_SUPPORT		(1 << 0) /* mask of all supported flags */
+
 int ima_calc_hash2(const char *file, const char *hash_algo, uint8_t *hash);
+int imaevm_signhash(const char *hashalgo, const unsigned char *hash, int size,
+		    const char *keyfile, const char *keypass,
+		    unsigned char *sig, long sigflags,
+		    const struct imaevm_ossl_access *access_info,
+		    uint32_t keyid);
 int imaevm_verify_hash(struct public_key_entry *public_keys, const char *file,
 		       const char *hash_algo, const unsigned char *hash,
 		       int size, unsigned char *sig, int siglen);
