@@ -2355,6 +2355,16 @@ static int ima_measurement(const char *file)
 	if (!tpm_banks)
 		goto out_free;
 
+	/*
+	 * Reading the PCRs before walking the IMA measurement list
+	 * guarantees that all of the measurements are included in
+	 * the PCRs. Read the state of the PCRs (possibly using TSS tools)
+	 * before opening the log so that all entries are part of the log --
+	 * this is mostly relevant for the log sharder that uses FUSE.
+	 */
+	if (read_tpm_banks(num_banks, tpm_banks) != 0)
+		tpmbanks = 0;
+
 	fp = fopen(file, "rb");
 	if (!fp) {
 		log_err("Failed to open measurement file: %s\n", file);
@@ -2374,14 +2384,6 @@ static int ima_measurement(const char *file)
 	if (errno || err < 0)
 		log_errno_reset(LOG_DEBUG,
 				"Failure in initializing public keys");
-
-	/*
-	 * Reading the PCRs before walking the IMA measurement list
-	 * guarantees that all of the measurements are included in
-	 * the PCRs.
-	 */
-	if (read_tpm_banks(num_banks, tpm_banks) != 0)
-		tpmbanks = 0;
 
 	/* A mask where each bit represents the banks to check against */
 	pseudo_banks_mask = (1 << num_banks) - 1;
